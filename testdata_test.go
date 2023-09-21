@@ -7,7 +7,7 @@ package jsonbench
 import (
 	"time"
 
-	"github.com/go-json-experiment/json"
+	"github.com/go-json-experiment/json/jsontext"
 )
 
 type (
@@ -272,7 +272,7 @@ type (
 				MaritalStatus             syntheaCode        `json:"maritalStatus"`
 				MedicationCodeableConcept syntheaCode        `json:"medicationCodeableConcept"`
 				MultipleBirthBoolean      bool               `json:"multipleBirthBoolean"`
-				Name                      json.RawValue      `json:"name"`
+				Name                      jsontext.Value     `json:"name"`
 				NumberOfInstances         int64              `json:"numberOfInstances"`
 				NumberOfSeries            int64              `json:"numberOfSeries"`
 				OccurrenceDateTime        time.Time          `json:"occurrenceDateTime"`
@@ -329,8 +329,8 @@ type (
 				} `json:"supportingInfo"`
 				Telecom              []map[string]string `json:"telecom"`
 				Text                 map[string]string   `json:"text"`
-				Total                json.RawValue       `json:"total"`
-				Type                 json.RawValue       `json:"type"`
+				Total                jsontext.Value      `json:"total"`
+				Type                 jsontext.Value      `json:"type"`
 				Use                  string              `json:"use"`
 				VaccineCode          syntheaCode         `json:"vaccineCode"`
 				ValueCodeableConcept syntheaCode         `json:"valueCodeableConcept"`

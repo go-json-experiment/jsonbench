@@ -27,9 +27,11 @@ import (
 	sonicenc "github.com/bytedance/sonic/encoder"
 	jsonv2 "github.com/go-json-experiment/json"
 	jsontext "github.com/go-json-experiment/json/jsontext"
+	jsonv1in2 "github.com/go-json-experiment/json/v1"
 	gojson "github.com/goccy/go-json"
 	jsoniter "github.com/json-iterator/go"
 	segjson "github.com/segmentio/encoding/json"
+	sonnetjson "github.com/sugawarayuuta/sonnet"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -84,6 +86,13 @@ var arshalers = []struct {
 	marshalWrite:  func(w io.Writer, v any) error { return jsonv1.NewEncoder(w).Encode(v) },
 	unmarshalRead: func(r io.Reader, v any) error { return jsonv1.NewDecoder(r).Decode(v) },
 }, {
+	name:          "JSONv1in2",
+	pkgPath:       "github.com/go-json-experiment/json/v1",
+	marshal:       jsonv1in2.Marshal,
+	unmarshal:     jsonv1in2.Unmarshal,
+	marshalWrite:  func(w io.Writer, v any) error { return jsonv1in2.NewEncoder(w).Encode(v) },
+	unmarshalRead: func(r io.Reader, v any) error { return jsonv1in2.NewDecoder(r).Decode(v) },
+}, {
 	name:          "JSONv2",
 	pkgPath:       "github.com/go-json-experiment/json",
 	marshal:       func(v any) ([]byte, error) { return jsonv2.Marshal(v) },
@@ -118,6 +127,13 @@ var arshalers = []struct {
 	unmarshal:     sonicjson.Unmarshal,
 	marshalWrite:  func(w io.Writer, v any) error { return sonicenc.NewStreamEncoder(w).Encode(v) },
 	unmarshalRead: func(r io.Reader, v any) error { return sonicdec.NewStreamDecoder(r).Decode(v) },
+}, {
+	name:          "SonnetJSON",
+	pkgPath:       "github.com/sugawarayuuta/sonnet",
+	marshal:       sonnetjson.Marshal,
+	unmarshal:     sonnetjson.Unmarshal,
+	marshalWrite:  func(w io.Writer, v any) error { return sonnetjson.NewEncoder(w).Encode(v) },
+	unmarshalRead: func(r io.Reader, v any) error { return sonnetjson.NewDecoder(r).Decode(v) },
 }}
 
 func TestRoundtrip(t *testing.T) {
@@ -209,6 +225,8 @@ func TestStreaming(t *testing.T) {
 	wantStreaming := map[string]bool{
 		"JSONv1/Marshal":         false,
 		"JSONv1/Unmarshal":       false,
+		"JSONv1in2/Marshal":      false,
+		"JSONv1in2/Unmarshal":    false,
 		"JSONv2/Marshal":         true,
 		"JSONv2/Unmarshal":       true,
 		"JSONIterator/Marshal":   false,
@@ -219,6 +237,8 @@ func TestStreaming(t *testing.T) {
 		"GoJSON/Unmarshal":       false,
 		"SonicJSON/Marshal":      false,
 		"SonicJSON/Unmarshal":    false,
+		"SonnetJSON/Marshal":     false,
+		"SonnetJSON/Unmarshal":   false,
 	}
 
 	const size = 1e6
@@ -276,6 +296,8 @@ func TestValidateUTF8(t *testing.T) {
 	wantModes := map[string]mode{
 		"JSONv1/Marshal":         replaced,
 		"JSONv1/Unmarshal":       replaced,
+		"JSONv1in2/Marshal":      replaced,
+		"JSONv1in2/Unmarshal":    replaced,
 		"JSONv2/Marshal":         rejected,
 		"JSONv2/Unmarshal":       rejected,
 		"JSONIterator/Marshal":   replaced,
@@ -286,6 +308,8 @@ func TestValidateUTF8(t *testing.T) {
 		"GoJSON/Unmarshal":       ignored,
 		"SonicJSON/Marshal":      ignored,
 		"SonicJSON/Unmarshal":    ignored,
+		"SonnetJSON/Marshal":     replaced,
+		"SonnetJSON/Unmarshal":   replaced,
 	}
 	for _, a := range arshalers {
 		t.Run(a.name+"/Marshal", func(t *testing.T) {
@@ -335,11 +359,13 @@ func (duplicateText) MarshalText() ([]byte, error) {
 func TestDuplicateNames(t *testing.T) {
 	wantAllowDuplicates := map[string]bool{
 		"JSONv1":       true,
+		"JSONv1in2":    true,
 		"JSONv2":       false,
 		"JSONIterator": true,
 		"SegmentJSON":  true,
 		"GoJSON":       true,
 		"SonicJSON":    true,
+		"SonnetJSON":   true,
 	}
 	for _, a := range arshalers {
 		t.Run(a.name+"/Marshal", func(t *testing.T) {
@@ -426,11 +452,13 @@ func TestValidateMarshalJSON(t *testing.T) {
 	)
 	wantModes := map[string]mode{
 		"JSONv1":       rejected,
+		"JSONv1in2":    rejected,
 		"JSONv2":       rejected,
 		"JSONIterator": ignored,
 		"SegmentJSON":  rejected,
 		"GoJSON":       rejected,
 		"SonicJSON":    rejected,
+		"SonnetJSON":   rejected,
 	}
 	for _, a := range arshalers {
 		t.Run(a.name, func(t *testing.T) {
@@ -452,11 +480,13 @@ func TestValidateMarshalJSON(t *testing.T) {
 func TestMapDeterminism(t *testing.T) {
 	wantDeterministic := map[string]bool{
 		"JSONv1":       true,
+		"JSONv1in2":    true,
 		"JSONv2":       false,
 		"JSONIterator": false,
 		"SegmentJSON":  true,
 		"GoJSON":       true,
 		"SonicJSON":    false,
+		"SonnetJSON":   false,
 	}
 	for _, a := range arshalers {
 		t.Run(a.name, func(t *testing.T) {
@@ -492,11 +522,13 @@ func TestUnmarshalErrors(t *testing.T) {
 	type Struct struct{ A, B, C []int }
 	want := map[string]Struct{
 		"JSONv1":       {},                            // none
+		"JSONv1in2":    {},                            // none
 		"JSONv2":       {A: []int{1}, B: []int{2, 0}}, // all
 		"JSONIterator": {A: []int{1}, B: []int{2, 0}}, // all
 		"SegmentJSON":  {A: []int{1}, B: []int{2}},    // some
 		"GoJSON":       {A: []int{1}},                 // some
 		"SonicJSON":    {A: []int{1}, B: []int{2, 0}}, // all
+		"SonnetJSON":   {A: []int{1}},                 // some
 	}
 	for _, a := range arshalers {
 		t.Run(a.name, func(t *testing.T) {

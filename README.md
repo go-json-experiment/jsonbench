@@ -3,22 +3,30 @@
 Each of the charts below show the performance across
 several different JSON implementations:
 
-* `JSONv1` is `encoding/json` at `v1.21.1`
-* `JSONv2` is `github.com/go-json-experiment/json` at `v0.0.0-20230906215633-699550ab4a68`
+* `JSONv1` is `encoding/json` at `v1.23.5`
+* `JSONv1in2` is `github.com/go-json-experiment/json/v1` at `v0.0.0-20250127181117-bbe7ee0d7d2c`
+* `JSONv2` is `github.com/go-json-experiment/json` at `v0.0.0-20250127181117-bbe7ee0d7d2c`
 * `JSONIterator` is `github.com/json-iterator/go` at `v1.1.12`
-* `SegmentJSON` is `github.com/segmentio/encoding/json` at `v0.3.6`
-* `GoJSON` is `github.com/goccy/go-json` at `v0.10.2`
-* `SonicJSON` is `github.com/bytedance/sonic` at `v1.10.1`
+* `SegmentJSON` is `github.com/segmentio/encoding/json` at `v0.4.1`
+* `GoJSON` is `github.com/goccy/go-json` at `v0.10.4`
+* `SonicJSON` is `github.com/bytedance/sonic` at `v1.12.7`
+* `SonnetJSON` is `github.com/sugawarayuuta/sonnet` at `v0.0.0-20231004000330-239c7b6e4ce8`
 
-The Go toolchain used is `v1.21.1`.
+The `JSONv1in2` implementation replicates the `JSONv1` API and behavior
+purely in terms of the `JSONv2` implementation by setting the appropriate
+set of options to reproduce legacy v1 behavior.
 
-Based on the module proxy as of 2023-07-01, the relative popularity of each:
+The Go toolchain used is `v1.23.5`.
+
+Based on the module proxy as of 2025-01-22, the relative popularity of each:
 * `JSONv1` has 1.3M imports
-* `JSONv2` has 47 imports
-* `JSONIterator` has 17k imports
-* `SegmentJSON` has 347 imports
-* `GoJSON` has 2k imports
-* `SonicJSON` has 517 imports
+* `JSONv1in2` has 8 imports
+* `JSONv2` has 213 imports
+* `JSONIterator` has 15k imports
+* `SegmentJSON` has 317 imports
+* `GoJSON` has 3k imports
+* `SonicJSON` has 1k imports
+* `SonnetJSON` has 13 imports
 
 Note that `JSONv2` deliberately dissuades users from depending on the package
 as it is an experiment and is subject to major breaking changes.
@@ -38,8 +46,7 @@ Benchmarks were run across various datasets:
   It contains many nested JSON objects, each with the same schema.
 * `StringUnicode` contains many strings with multi-byte Unicode runes.
 
-All of the implementations other than `JSONv1` and `JSONv2` make
-extensive use of `unsafe`. As such, we expect those to generally be faster,
+All of the implementations other than `JSONv1`, `JSONv1in2`, `JSONv2`, and `Sonnet` make extensive use of `unsafe`. As such, we expect those to generally be faster,
 but at the cost of memory and type safety. `SonicJSON` goes a step even further
 and uses just-in-time compilation to generate machine code specialized
 for the Go type being marshaled or unmarshaled.
@@ -66,11 +73,21 @@ impacts performance:
     call methods and functions that operate on a pointer receiver.
     This will hurt performance, but is more correct.
 
+4.  When marshaling or unmarshaling, `JSONv2` supports calling
+    type-defined methods or caller-defined functions with the current
+    `jsontext.Encoder` or `jsontext.Decoder`. The `Encoder` or `Decoder` must
+    contain a state machine to validate calls according to the JSON grammar.
+    Maintaining this state will hurt performance.
+    The `JSONv1` API provides no means for obtaining the `Encoder` or `Decoder`
+    so it never needed to explicitly maintain a state machine.
+    Conformance to the JSON grammar is implicitly accomplished
+    by matching against the structure of the call stack.
+
 All of the charts are unit-less since the values are normalized
 relative to `JSONv1`, which is why `JSONv1` always has a value of 1.
 A lower value is better (i.e., runs faster).
 
-Benchmarks were performed on an AMD Ryzen 9 5900X.
+Benchmarks were performed on an AMD Ryzen 9 9950X.
 
 ## Marshal Performance
 
@@ -80,15 +97,16 @@ Benchmarks were performed on an AMD Ryzen 9 5900X.
 
 * This compares marshal performance when serializing
   [from concrete types](/testdata_test.go).
-* The `JSONv1` implementation is close to optimal (without the use of `unsafe`).
-* Relative to `JSONv1`, `JSONv2` is around performance parity.
-* Relative to `JSONIterator`, `JSONv2` is up to 1.4x faster.
-* Relative to `SegmentJSON`, `JSONv2` is up to 1.9x slower.
-* Relative to `GoJSON`, `JSONv2` is up to 1.5x slower.
-* Relative to `SonicJSON`, `JSONv2` is about 2.2x to 3.9x slower
+* Relative to `JSONv1`, `JSONv2` is 1.4x faster to 1.2x slower.
+* Relative to `JSONv1in2`, `JSONv2` is at performance parity.
+* Relative to `JSONIterator`, `JSONv2` is up to 1.2x faster.
+* Relative to `SegmentJSON`, `JSONv2` is up to 2.0x slower.
+* Relative to `GoJSON`, `JSONv2` is 1.1x faster to 1.4x slower.
+* Relative to `SonicJSON`, `JSONv2` is 1.2x to 3.4x slower
   (ignoring `StringUnicode` since `SonicJSON` does not validate UTF-8).
+* Relative to `SonnetJSON`, `JSONv2` is up to 1.5x slower.
 * For `JSONv1` and `JSONv2`, marshaling from concrete types is
-  mostly limited by the performance of Go reflection.
+  significantly limited by the performance of Go reflection.
 
 ### Interface types
 
@@ -96,15 +114,18 @@ Benchmarks were performed on an AMD Ryzen 9 5900X.
 
 * This compares marshal performance when serializing from
   `any`, `map[string]any`, and `[]any` types.
-* Relative to `JSONv1`, `JSONv2` is about 1.4x to 3.8x faster.
-* Relative to `JSONIterator`, `JSONv2` is about 1.1x to 2.6x faster.
-* Relative to `SegmentJSON`, `JSONv2` is about 1.1x to 1.9x faster.
-* Relative to `GoJSON`, `JSONv2` is about 1.4x to 3.0x faster.
-* Relative to `SonicJSON`, `JSONv2` is around performance parity
+* Relative to `JSONv1`, `JSONv2` is 1.6x to 3.6x faster.
+* Relative to `JSONv1in2`, `JSONv2` is up to 2.2x faster.
+* Relative to `JSONIterator`, `JSONv2` is up to 2.6x faster.
+* Relative to `SegmentJSON`, `JSONv2` is 1.1x to 3.5x faster.
+* Relative to `GoJSON`, `JSONv2` is 1.5x to 3.5x faster.
+* Relative to `SonicJSON`, `JSONv2` is 1.4x faster to 1.3x slower
   (ignoring `StringUnicode` since `SonicJSON` does not validate UTF-8).
+* Relative to `SonnetJSON`, `JSONv2` is up to 1.8x faster.
 * `JSONv2` is generally as fast or faster than the alternatives.
   One advantange is because it does not sort the keys for a `map[string]any`,
-  while alternatives (except `SonicJSON` and `JSONIterator`) do sort the keys.
+  while alternatives (except `JSONIterator`, `SonicJSON` and `SonnetJSON`)
+  do sort the keys.
 
 ### RawValue types
 
@@ -113,14 +134,19 @@ Benchmarks were performed on an AMD Ryzen 9 5900X.
 * This compares performance when marshaling from a `jsontext.Value`.
   This mostly exercises the underlying encoder and
   hides the cost of Go reflection.
-* Relative to `JSONv1`, `JSONv2` is about 3.6x to 9.1x faster.
+* Relative to `JSONv1`, `JSONv2` is 5.6x to 12.0x faster.
+* Relative to `JSONv1in2`, `JSONv2` is up to 1.3x slower
+  (since `JSONv2` needs to check for duplicate object names).
 * `JSONIterator` is blazingly fast because
   [it does not validate whether the raw value is valid](https://go.dev/play/p/bun9IXQCKRe)
   and simply copies it to the output.
-* Relative to `SegmentJSON`, `JSONv2` is about 1.4x to 2.7x faster.
-* Relative to `GoJSON`, `JSONv2` is 1.1x slower or up to 2.2x faster.
-* Relative to `SonicJSON`, `JSONv2` is 1.3x slower or up to 1.5x faster.
-* Aside from `JSONIterator`, `JSONv2` is generally as fast or fastest.
+* Relative to `SegmentJSON`, `JSONv2` is 1.4x to 2.6x faster.
+* Relative to `GoJSON`, `JSONv2` is 2.7x faster to 1.4x slower.
+* Relative to `SonicJSON`, `JSONv2` is up to 1.8x faster
+  (ignoring `StringUnicode` since `SonicJSON` does not validate UTF-8).
+* Relative to `SonnetJSON`, `JSONv2` is at performance parity.
+* Aside from `JSONIterator` and `JSONv1in2`,
+  `JSONv2` is generally as fast or fastest.
 
 ## Unmarshal Performance
 
@@ -130,14 +156,16 @@ Benchmarks were performed on an AMD Ryzen 9 5900X.
 
 * This compares unmarshal performance when deserializing
   [into concrete types](/testdata_test.go).
-* Relative to `JSONv1`, `JSONv2` is about 2.5x to 8.4x faster.
-* Relative to `JSONIterator`, `JSONv2` is about 0.8x to 1.5x slower.
-* Relative to `SegmentJSON`, `JSONv2` is up to 2.1x slower.
-* Relative to `GoJSON`, `JSONv2` is about 1.3x to 1.7x slower.
-* Relative to `SonicJSON`, `JSONv2` is up to 2.9x slower
+* Relative to `JSONv1`, `JSONv2` is 2.7x to 10.2x faster.
+* Relative to `JSONv1in2`, `JSONv2` is 1.1x to 1.3x faster.
+* Relative to `JSONIterator`, `JSONv2` is 1.3x faster to 1.5x slower.
+* Relative to `SegmentJSON`, `JSONv2` is up to 1.9x slower.
+* Relative to `GoJSON`, `JSONv2` is 1.3x to 1.8x slower.
+* Relative to `SonicJSON`, `JSONv2` is up to 2.8x slower
   (ignoring `StringUnicode` since `SonicJSON` does not validate UTF-8).
+* Relative to `SonnetJSON`, `JSONv2` is up to 2.1x slower.
 * For `JSONv1` and `JSONv2`, unmarshaling into concrete types is
-  mostly limited by the performance of Go reflection.
+  significantly limited by the performance of Go reflection.
 
 ### Interface types
 
@@ -145,13 +173,16 @@ Benchmarks were performed on an AMD Ryzen 9 5900X.
 
 * This compares unmarshal performance when deserializing into
   `any`, `map[string]any`, and `[]any` types.
-* Relative to `JSONv1`, `JSONv2` is about 1.8x to 5.0x faster.
-* Relative to `JSONIterator`, `JSONv2` is up to 1.9x faster.
-* Relative to `SegmentJSON`, `JSONv2` is about 1.5 to 3.4x faster.
+* Relative to `JSONv1`, `JSONv2` is 2.3x to 5.7x faster.
+* Relative to `JSONv1in2`, `JSONv2` is 1.8x to 2.6x faster
+  (since `JSONv1in2` lacks a specialized fast-path for interface types).
+* Relative to `JSONIterator`, `JSONv2` is up to 2.1x faster.
+* Relative to `SegmentJSON`, `JSONv2` is 2.5x to 4.6x faster.
 * Relative to `GoJSON`, `JSONv2` is up to 1.4x faster.
-* Relative to `SonicJSON`, `JSONv2` is up to 1.3x slower
+* Relative to `SonicJSON`, `JSONv2` is 1.2x faster to 1.1x slower
   (ignoring `StringUnicode` since `SonicJSON` does not validate UTF-8).
-* Aside from `SonicJSON`, `JSONv2` is generally just as fast
+* Relative to `SonnetJSON`, `JSONv2` is 1.2x to 1.8x slower.
+* Aside from `SonnetJSON`, `JSONv2` is generally just as fast
   or faster than all the alternatives.
 
 ### RawValue types
@@ -161,19 +192,21 @@ Benchmarks were performed on an AMD Ryzen 9 5900X.
 * This compares performance when unmarshaling into a `jsontext.Value`.
   This mostly exercises the underlying decoder and
   hides away most of the cost of Go reflection.
-* Relative to `JSONv1`, `JSONv2` is about 9.3x to 17.2x faster.
+* Relative to `JSONv1`, `JSONv2` is 10.2x to 21.1x faster.
+* Relative to `JSONv1in2`, `JSONv2` is 1.3x to 1.9x faster.
 * Relative to `JSONIterator`, `JSONv2` is up to 2.2x faster.
-* Relative to `SegmentJSON`, `JSONv2` is 1.7x slower or up to 1.9x faster.
-* Relative to `GoJSON`, `JSONv2` is 1.9x slower or up to 1.8x faster.
-* Relative to `SonicJSON`, `JSONv2` is up to 1.9x faster
+* Relative to `SegmentJSON`, `JSONv2` is up to 2.0x slower.
+* Relative to `GoJSON`, `JSONv2` is 1.6x faster to 1.4x slower.
+* Relative to `SonicJSON`, `JSONv2` is up to 2.1x faster
   (ignoring `StringUnicode` since `SonicJSON` does not validate UTF-8).
+* Relative to `SonnetJSON`, `JSONv2` is 1.2x faster to 1.3x slower.
 * `JSONv1` takes a
   [lexical scanning approach](https://talks.golang.org/2011/lex.slide#1),
   which performs a virtual function call for every byte of input.
   In contrast, `JSONv2` makes heavy use of iterative and linear parsing logic
   (with extra complexity to resume parsing when encountering segmented buffers).
-* `JSONv2` is comparable to the alternatives that use `unsafe`.
-  Generally it is faster, but sometimes it is slower.
+* Aside from `SegmentJSON`, `JSONv2` is generally just as fast
+  or faster than all the alternatives.
 
 # Streaming
 
@@ -191,11 +224,13 @@ The following implementations have true streaming support:
 | Implementation | Marshal | Unmarshal |
 | -------------- | ------- | --------- |
 | JSONv1         | ❌      | ❌        |
+| JSONv1in2      | ❌      | ❌        |
 | JSONv2         | ✔️      | ✔️        |
 | JSONIterator   | ❌      | ✔️        |
 | SegmentJSON    | ❌      | ❌        |
 | GoJSON         | ❌      | ❌        |
 | SonicJSON      | ❌      | ❌        |
+| SonnetJSON     | ❌      | ❌        |
 
 * `JSONv2` was designed from the beginning to have true streaming support.
 * `JSONIterator` (perhaps in honor of the "iterator" in its name)
@@ -221,170 +256,211 @@ A package may be fast, but it must still be correct and realiable.
   Marshal error: invalid character ',' after object key
   ```
   ```
-  --- FAIL: TestRoundtrip/GolangSource/Interface/GoJSON/Marshal (0.16s)
-  panic: runtime error: slice bounds out of range [19812224:1940444]
+  --- FAIL: TestRoundtrip/TwitterStatus/Interface/GoJSON/MarshalWrite (0.01s)
+  panic: runtime error: slice bounds out of range [10409248:74824]
 
-  goroutine 390 [running]:
-  testing.tRunner.func1.2({0x132a580, 0xc002b56018})
-    go1.21.1/src/testing/testing.go:1545 +0x238
+  goroutine 111 [running]:
+  testing.tRunner.func1.2({0xa3c220, 0xc002cec228})
+    go1.23.5/src/testing/testing.go:1632 +0x230
   testing.tRunner.func1()
-    go1.21.1/src/testing/testing.go:1548 +0x397
-  panic({0x132a580?, 0xc002b56018?})
-    go1.21.1/src/runtime/panic.go:914 +0x21f
-  github.com/goccy/go-json/internal/encoder/vm.Run(0xc0035984e0, {0xc0035cc000?, 0x0?, 0x400?}, 0xc0034c4000?)
-    github.com/goccy/go-json@v0.10.2/internal/encoder/vm/vm.go:440 +0x26505
-  github.com/goccy/go-json.encodeRunCode(0x40?, {0xc0035cc000?, 0xc0035a8080?, 0x0?}, 0xc00012fd38?)
-    github.com/goccy/go-json@v0.10.2/encode.go:310 +0x56
-  github.com/goccy/go-json.encode(0xc0035984e0, {0x12c4760, 0xc00235ef20})
-    github.com/goccy/go-json@v0.10.2/encode.go:235 +0x205
-  github.com/goccy/go-json.(*Encoder).encodeWithOption(0xc0035d5e60, 0xc0035984e0, {0x12c4760, 0xc00235ef20}, {0x0, 0x0, 0x49084f?})
-    github.com/goccy/go-json@v0.10.2/encode.go:77 +0x129
-  github.com/goccy/go-json.(*Encoder).EncodeWithOption(0x1310600?, {0x12c4760, 0xc00235ef20}, {0x0, 0x0, 0x0})
-    github.com/goccy/go-json@v0.10.2/encode.go:42 +0x8d
+    go1.23.5/src/testing/testing.go:1635 +0x35e
+  panic({0xa3c220?, 0xc002cec228?})
+    go1.23.5/src/runtime/panic.go:785 +0x132
+  github.com/goccy/go-json/internal/encoder/vm.Run(0xc00308a000, {0xc003088000?, 0x0?, 0x400?}, 0xc000ce9880?)
+    github.com/goccy/go-json@v0.10.4/internal/encoder/vm/vm.go:440 +0x25ae5
+  github.com/goccy/go-json.encodeRunCode(0xc00308a000?, {0xc003088000?, 0x0?, 0xc0001a53c0?}, 0xc002fb5d38?)
+    github.com/goccy/go-json@v0.10.4/encode.go:310 +0x56
+  github.com/goccy/go-json.encode(0xc00308a000, {0x9be140, 0xc002022fb0})
+    github.com/goccy/go-json@v0.10.4/encode.go:235 +0x205
+  github.com/goccy/go-json.(*Encoder).encodeWithOption(0xc003093e58, 0xc00308a000, {0x9be140, 0xc002022fb0}, {0x0, 0x0, 0xc002fb5e90?})
+    github.com/goccy/go-json@v0.10.4/encode.go:77 +0x129
+  github.com/goccy/go-json.(*Encoder).EncodeWithOption(0xc002fb5e58, {0x9be140, 0xc002022fb0}, {0x0, 0x0, 0x0})
+    github.com/goccy/go-json@v0.10.4/encode.go:42 +0x89
   github.com/goccy/go-json.(*Encoder).Encode(...)
-    github.com/goccy/go-json@v0.10.2/encode.go:34
-  jsonbench.glob..func17({0x15b1b20?, 0xc0035b23c0?}, {0x12c4760?, 0xc00235ef20?})
-    github.com/go-json-experiment/jsonbench/bench_test.go:112 +0x69
-  jsonbench.TestRoundtrip.func3(0xc002e44000)
-    github.com/go-json-experiment/jsonbench/bench_test.go:159 +0x11f
-  testing.tRunner(0xc002e44000, 0xc0008b9000)
-    go1.21.1/src/testing/testing.go:1595 +0xff
-  created by testing.(*T).Run in goroutine 44
-    go1.21.1/src/testing/testing.go:1648 +0x3ad
+    github.com/goccy/go-json@v0.10.4/encode.go:34
+  jsonbench.init.func19({0xb55e20?, 0xc003086000?}, {0x9be140?, 0xc002022fb0?})
+    github.com/go-json-experiment/jsonbench/bench_test.go:121 +0x69
+  jsonbench.TestRoundtrip.func3(0xc001fd0ea0)
+    github.com/go-json-experiment/jsonbench/bench_test.go:175 +0x135
+  testing.tRunner(0xc001fd0ea0, 0xc0004efa80)
+    go1.23.5/src/testing/testing.go:1690 +0xf4
+  created by testing.(*T).Run in goroutine 9
+    go1.23.5/src/testing/testing.go:1743 +0x390
   exit status 2
   ```
   ```
-  --- FAIL: TestRoundtrip/StringUnicode/RawValue/GoJSON/Unmarshal (0.01s)
-	panic: runtime error: invalid memory address or nil pointer dereference
-  [signal SIGSEGV: segmentation violation code=0x1 addr=0x0 pc=0x1129b47]
+  --- FAIL: TestRoundtrip/TwitterStatus/Interface/GoJSON/MarshalWrite (0.03s)
+  panic: runtime error: invalid memory address or nil pointer dereference
+  [signal SIGSEGV: segmentation violation code=0x1 addr=0x0 pc=0x859f9e]
 
-  goroutine 483 [running]:
-  testing.tRunner.func1.2({0x12e91c0, 0x1c6ce80})
-    go1.21.1/src/testing/testing.go:1545 +0x238
+  goroutine 114 [running]:
+  testing.tRunner.func1.2({0x9f1ee0, 0xf8a7b0})
+    go1.23.5/src/testing/testing.go:1632 +0x230
   testing.tRunner.func1()
-    go1.21.1/src/testing/testing.go:1548 +0x397
-  panic({0x12e91c0?, 0x1c6ce80?})
-    go1.21.1/src/runtime/panic.go:914 +0x21f
-  github.com/goccy/go-json/internal/decoder.(*unmarshalJSONDecoder).DecodeStream(0x0, 0xc00388a000, 0xc00388c000?, 0xc003882030)
-    github.com/goccy/go-json@v0.10.2/internal/decoder/unmarshal_json.go:48 +0xe7
-  github.com/goccy/go-json.(*Decoder).DecodeWithOption(0xc00342cea8, {0x132b7a0, 0xc003882030}, {0x0, 0x0, 0xc00342ceb0?})
-    github.com/goccy/go-json@v0.10.2/decode.go:233 +0xe6
-  github.com/goccy/go-json.(*Decoder).Decode(...)
-    github.com/goccy/go-json@v0.10.2/decode.go:199
-  jsonbench.glob..func18({0x15b1b40?, 0xc003886060}, {0x132b7a0, 0xc003882030})
-    github.com/go-json-experiment/jsonbench/bench_test.go:113 +0x12b
-  jsonbench.TestRoundtrip.func4(0xc003431ba0)
-    github.com/go-json-experiment/jsonbench/bench_test.go:188 +0x1d3
-  testing.tRunner(0xc003431ba0, 0xc003426580)
-    go1.21.1/src/testing/testing.go:1595 +0xff
-  created by testing.(*T).Run in goroutine 26
-    go1.21.1/src/testing/testing.go:1648 +0x3ad
+    go1.23.5/src/testing/testing.go:1635 +0x35e
+  panic({0x9f1ee0?, 0xf8a7b0?})
+    go1.23.5/src/runtime/panic.go:785 +0x132
+  github.com/goccy/go-json/internal/encoder/vm.Run(0xc003f32000, {0xc003f30000?, 0x0?, 0x400?}, 0xc003f3a000?)
+    github.com/goccy/go-json@v0.10.4/internal/encoder/vm/vm.go:26 +0x5e
+  github.com/goccy/go-json.encodeRunCode(0xc003f32000?, {0xc003f30000?, 0xc0026301c0?, 0xc00069cc40?}, 0xc003f21d38?)
+    github.com/goccy/go-json@v0.10.4/encode.go:310 +0x56
+  github.com/goccy/go-json.encode(0xc003f32000, {0x9be140, 0xc00203e580})
+    github.com/goccy/go-json@v0.10.4/encode.go:235 +0x205
+  github.com/goccy/go-json.(*Encoder).encodeWithOption(0xc003f43e58, 0xc003f32000, {0x9be140, 0xc00203e580}, {0x0, 0x0, 0xc003f21e90?})
+    github.com/goccy/go-json@v0.10.4/encode.go:77 +0x129
+  github.com/goccy/go-json.(*Encoder).EncodeWithOption(0xc003f21e58, {0x9be140, 0xc00203e580}, {0x0, 0x0, 0x0})
+    github.com/goccy/go-json@v0.10.4/encode.go:42 +0x89
+  github.com/goccy/go-json.(*Encoder).Encode(...)
+    github.com/goccy/go-json@v0.10.4/encode.go:34
+  jsonbench.init.func19({0xb55e20?, 0xc003f28000?}, {0x9be140?, 0xc00203e580?})
+    github.com/go-json-experiment/jsonbench/bench_test.go:121 +0x69
+  jsonbench.TestRoundtrip.func3(0xc00262e1a0)
+    github.com/go-json-experiment/jsonbench/bench_test.go:175 +0x135
+  testing.tRunner(0xc00262e1a0, 0xc000538c00)
+    go1.23.5/src/testing/testing.go:1690 +0xf4
+  created by testing.(*T).Run in goroutine 65
+    go1.23.5/src/testing/testing.go:1743 +0x390
   exit status 2
   ```
   ```
-  unexpected fault address 0x0
+  unexpected fault address 0x49af0034
   fatal error: fault
-  [signal SIGSEGV: segmentation violation code=0x80 addr=0x0 pc=0x119d888]
+  [signal SIGSEGV: segmentation violation code=0x1 addr=0x49af0034 pc=0x859ffa]
 
-  goroutine 83 [running]:
-  runtime.throw({0x1368c41?, 0xc000028930?})
-      go1.21.1/src/runtime/panic.go:1077 +0x5c fp=0xc001a79900 sp=0xc001a798d0 pc=0x43aedc
+  goroutine 27 gp=0xc0000d7880 m=29 mp=0xc006a0a008 [running]:
+  runtime.throw({0xa79779?, 0x4871aa?})
+    go1.23.5/src/runtime/panic.go:1067 +0x48 fp=0xc0030b5908 sp=0xc0030b58d8 pc=0x473928
   runtime.sigpanic()
-      go1.21.1/src/runtime/signal_unix.go:875 +0x285 fp=0xc001a79960 sp=0xc001a79900 pc=0x451ee5
-  github.com/goccy/go-json/internal/encoder/vm.Run(0xc0019d2680, {0xc00002ec00?, 0xae0?, 0x12c92c0?}, 0x1?)
-      github.com/goccy/go-json@v0.10.2/internal/encoder/vm/vm.go:560 +0x15f88 fp=0xc001a7bcb8 sp=0xc001a79960 pc=0x119d888
-  github.com/goccy/go-json.encodeRunCode(0x40?, {0xc00002ec00?, 0xc0014e3580?, 0x0?}, 0xc000279d38?)
-      github.com/goccy/go-json@v0.10.2/encode.go:310 +0x56 fp=0xc001a7bcf0 sp=0xc001a7bcb8 pc=0x11af136
-  github.com/goccy/go-json.encode(0xc0019d2680, {0x12bc060, 0xc000297280})
-      github.com/goccy/go-json@v0.10.2/encode.go:235 +0x205 fp=0xc001a7bd70 sp=0xc001a7bcf0 pc=0x11aecc5
-  github.com/goccy/go-json.(*Encoder).encodeWithOption(0xc001a7be60, 0xc0019d2680, {0x12bc060, 0xc000297280}, {0x0, 0x0, 0x49084f?})
-      github.com/goccy/go-json@v0.10.2/encode.go:77 +0x129 fp=0xc001a7bdc8 sp=0xc001a7bd70 pc=0x11ae809
-  github.com/goccy/go-json.(*Encoder).EncodeWithOption(0x1310600?, {0x12bc060, 0xc000297280}, {0x0, 0x0, 0x0})
-      github.com/goccy/go-json@v0.10.2/encode.go:42 +0x8d fp=0xc001a7be30 sp=0xc001a7bdc8 pc=0x11ae64d
+    go1.23.5/src/runtime/signal_unix.go:931 +0x26c fp=0xc0030b5968 sp=0xc0030b5908 pc=0x47552c
+  github.com/goccy/go-json/internal/encoder/vm.Run(0xc0030ae000, {0xc00012fc00?, 0x0?, 0x400?}, 0xc003610000?)
+    github.com/goccy/go-json@v0.10.4/internal/encoder/vm/vm.go:32 +0xba fp=0xc0030b7cb8 sp=0xc0030b5968 pc=0x859ffa
+  github.com/goccy/go-json.encodeRunCode(0xc0030ae000?, {0xc00012fc00?, 0xc0000d7880?, 0xc000638a00?}, 0xc003088d38?)
+    github.com/goccy/go-json@v0.10.4/encode.go:310 +0x56 fp=0xc0030b7cf0 sp=0xc0030b7cb8 pc=0x881056
+  github.com/goccy/go-json.encode(0xc0030ae000, {0x9be140, 0xc000e90360})
+    github.com/goccy/go-json@v0.10.4/encode.go:235 +0x205 fp=0xc0030b7d70 sp=0xc0030b7cf0 pc=0x880be5
+  github.com/goccy/go-json.(*Encoder).encodeWithOption(0xc0030b7e58, 0xc0030ae000, {0x9be140, 0xc000e90360}, {0x0, 0x0, 0xc0004aae90?})
+    github.com/goccy/go-json@v0.10.4/encode.go:77 +0x129 fp=0xc0030b7dc8 sp=0xc0030b7d70 pc=0x880729
+  github.com/goccy/go-json.(*Encoder).EncodeWithOption(0xc003088e58, {0x9be140, 0xc000e90360}, {0x0, 0x0, 0x0})
+    github.com/goccy/go-json@v0.10.4/encode.go:42 +0x89 fp=0xc0030b7e28 sp=0xc0030b7dc8 pc=0x880569
   github.com/goccy/go-json.(*Encoder).Encode(...)
-      github.com/goccy/go-json@v0.10.2/encode.go:34
-  jsonbench.glob..func17({0x15b1b20?, 0xc001a67320?}, {0x12bc060?, 0xc000297280?})
-      github.com/go-json-experiment/jsonbench/bench_test.go:112 +0x69 fp=0xc001a7bea8 sp=0xc001a7be30 pc=0x128ff69
-  jsonbench.TestRoundtrip.func3(0xc001a81860)
-      github.com/go-json-experiment/jsonbench/bench_test.go:159 +0x11f fp=0xc001a7bf70 sp=0xc001a7bea8 pc=0x12910bf
-  testing.tRunner(0xc001a81860, 0xc0004f5800)
-      go1.21.1/src/testing/testing.go:1595 +0xff fp=0xc001a7bfc0 sp=0xc001a7bf70 pc=0x516fff
-  testing.(*T).Run.func1()
-      go1.21.1/src/testing/testing.go:1648 +0x25 fp=0xc001a7bfe0 sp=0xc001a7bfc0 pc=0x517f85
-  runtime.goexit()
-      go1.21.1/src/runtime/asm_amd64.s:1650 +0x1 fp=0xc001a7bfe8 sp=0xc001a7bfe0 pc=0x470761
-  created by testing.(*T).Run in goroutine 39
-      go1.21.1/src/testing/testing.go:1648 +0x3ad
+    github.com/goccy/go-json@v0.10.4/encode.go:34
+  jsonbench.init.func19({0xb55e20?, 0xc00308aae0?}, {0x9be140?, 0xc000e90360?})
+    github.com/go-json-experiment/jsonbench/bench_test.go:121 +0x69 fp=0xc0030b7ea0 sp=0xc0030b7e28 pc=0x991b89
+  jsonbench.TestRoundtrip.func3(0xc0004c5ba0)
+    github.com/go-json-experiment/jsonbench/bench_test.go:175 +0x135 fp=0xc0030b7f70 sp=0xc0030b7ea0 pc=0x992f95
+  testing.tRunner(0xc0004c5ba0, 0xc000277a00)
+    go1.23.5/src/testing/testing.go:1690 +0xf4 fp=0xc0030b7fc0 sp=0xc0030b7f70 pc=0x535954
+  testing.(*T).Run.gowrap1()
+    go1.23.5/src/testing/testing.go:1743 +0x25 fp=0xc0030b7fe0 sp=0xc0030b7fc0 pc=0x536945
+  runtime.goexit({})
+    go1.23.5/src/runtime/asm_amd64.s:1700 +0x1 fp=0xc0030b7fe8 sp=0xc0030b7fe0 pc=0x47b8e1
+  created by testing.(*T).Run in goroutine 63
+    go1.23.5/src/testing/testing.go:1743 +0x390
   ```
   ```
-  runtime: marked free object in span 0x7fe644a065b0, elemsize=896 freeindex=0 (bad use of unsafe.Pointer? try -d=checkptr)
-  0xc000142000 alloc marked  
-  0xc000142380 alloc unmarked
-  0xc000142700 alloc marked  
-  0xc000142a80 free  unmarked
-  0xc000142e00 free  unmarked
-  0xc000143180 free  unmarked
-  0xc000143500 alloc marked  
-  0xc000143880 free  marked   zombie
-  0x000000c000143880:  0x0000000000000017  0x000000c0001438f8 
-  0x000000c000143890:  0x000000c000143ad8  0x0000000000000000 
-  0x000000c0001438a0:  0x0000000000000000  0x0000000000000000 
-  0x000000c0001438b0:  0x0000000000000000  0x00000000012e4f80 
-  0x000000c0001438c0:  0x0000000000000000  0x0000000000000000 
-  0x000000c0001438d0:  0x0000000000000000  0x0000000000000000 
-  0x000000c0001438e0:  0x0000000000000000  0x0000000000000000 
-  0x000000c0001438f0:  0x0000000000000000  0x0000001000000013 
-  0x000000c000143900:  0x000000c000143970  0x0000000000000000 
-  0x000000c000143910:  0x0000000000000000  0x0000000000000000 
-  0x000000c000143920:  0x0000000000000000  0x0000000000000000 
-  0x000000c000143930:  0x00000000012c9000  0x0000000000000000 
-  0x000000c000143940:  0x0000000000000000  0x0000000000000000 
-  0x000000c000143950:  0x0000000000000000  0x0000000000000001 
-  0x000000c000143960:  0x0000000000000000  0x0000000000000000 
-  0x000000c000143970:  0x0000000000000008  0x000000c0001439e8 
-  0x000000c000143980:  0x000000c000143ad8  0x0000000000000000 
-  0x000000c000143990:  0x0000000000000000  0x0000000000000000 
-  0x000000c0001439a0:  0x0000000000000000  0x00000000012dc620 
-  0x000000c0001439b0:  0x0000000000000000  0x0000000000000000 
-  0x000000c0001439c0:  0x0000000000000000  0x0000000000000000 
-  0x000000c0001439d0:  0x0000000000000002  0x0000000000000000 
-  0x000000c0001439e0:  0x0000000000000000  0x0000002000000001 
-  0x000000c0001439f0:  0x000000c000143a60  0x0000000000000000 
-  0x000000c000143a00:  0x0000000000000000  0x0000000000000000 
-  0x000000c000143a10:  0x0000000000000000  0x0004000000000000 
-  0x000000c000143a20:  0x00000000012dc620  0x0000000000000000 
-  0x000000c000143a30:  0x0000000000000000  0x0000000800000000 
-  0x000000c000143a40:  0x0000000000000001  0x0000000000000003 
-  0x000000c000143a50:  0x0000000000000000  0x0000000000000000 
-  0x000000c000143a60:  0x0000000000000007  0x000000c0001438f8 
-  0x000000c000143a70:  0x000000c000143ad8  0x0000000000000000 
-  0x000000c000143a80:  0x0000000000000000  0x0000000000000000 
-  0x000000c000143a90:  0x0000000000000000  0x00000000012c9000 
-  0x000000c000143aa0:  0x0000000000000000  0x0000000000000000 
-  0x000000c000143ab0:  0x0000000000000000  0x0000000000000000 
-  0x000000c000143ac0:  0x0000000000000004  0x0000000000000000 
-  0x000000c000143ad0:  0x0000000000000000  0x0000000000000009 
-  0x000000c000143ae0:  0x000000c000143b50  0x0000000000000000 
-  0x000000c000143af0:  0x0000000000000000  0x0000000000000000 
-  0x000000c000143b00:  0x0000000000000000  0x0000000000000000 
-  0x000000c000143b10:  0x00000000012e4f80  0x0000000000000000 
-  0x000000c000143b20:  0x0000000000000000  0x0000000000000000 
-  0x000000c000143b30:  0x0000000000000000  0x0000000000000005 
-  0x000000c000143b40:  0x0000000000000000  0x0000000000000000 
-  0x000000c000143b50:  0x000000400000000d  0x0000000000000000 
-  0x000000c000143b60:  0x0000000000000000  0x0000000000000000 
-  0x000000c000143b70:  0x0000000000000000  0x0000000000000000 
-  0x000000c000143b80:  0x0000000000000000  0x00000000012e4f80 
-  0x000000c000143b90:  0x0000000000000000  0x0000000000000000 
-  0x000000c000143ba0:  0x0000005000000048  0x0000000000000000 
-  0x000000c000143bb0:  0x0000000000000006  0x0000000000000000 
-  0x000000c000143bc0:  0x0000000000000000  0x0000000000000000 
-  0x000000c000143bd0:  0x0000000000000000  0x0000000000000000 
-  0x000000c000143be0:  0x0000000000000000  0x0000000000000000 
-  0x000000c000143bf0:  0x0000000000000000  0x0000000000000000 
-  0xc000143c00 free  unmarked
+  runtime: marked free object in span 0x7f784c8c0910, elemsize=896 freeindex=3 (bad use of unsafe.Pointer? try -d=checkptr)
+  0xc0037b0000 alloc unmarked
+  0xc0037b0380 alloc marked
+  0xc0037b0700 alloc marked
+  0xc0037b0a80 free  marked   zombie
+  0x000000c0037b0a80:  0x0000000000a5ae00  0x0000000000000017
+  0x000000c0037b0a90:  0x000000c0037b0b00  0x000000c0037b0ce0
+  0x000000c0037b0aa0:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0ab0:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0ac0:  0x00000000009ed520  0x0000000000000000
+  0x000000c0037b0ad0:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0ae0:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0af0:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0b00:  0x0000001000000013  0x000000c0037b0b78
+  0x000000c0037b0b10:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0b20:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0b30:  0x0000000000000000  0x00000000009cc4c0
+  0x000000c0037b0b40:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0b50:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0b60:  0x0000000000000001  0x0000000000000000
+  0x000000c0037b0b70:  0x0000000000000000  0x0000000000000008
+  0x000000c0037b0b80:  0x000000c0037b0bf0  0x000000c0037b0ce0
+  0x000000c0037b0b90:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0ba0:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0bb0:  0x00000000009e1f40  0x0000000000000000
+  0x000000c0037b0bc0:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0bd0:  0x0000000000000000  0x0000000000000002
+  0x000000c0037b0be0:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0bf0:  0x0000002000000001  0x000000c0037b0c68
+  0x000000c0037b0c00:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0c10:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0c20:  0x0004000000000000  0x00000000009e1f40
+  0x000000c0037b0c30:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0c40:  0x0000000800000000  0x0000000000000001
+  0x000000c0037b0c50:  0x0000000000000003  0x0000000000000000
+  0x000000c0037b0c60:  0x0000000000000000  0x0000000000000007
+  0x000000c0037b0c70:  0x000000c0037b0b00  0x000000c0037b0ce0
+  0x000000c0037b0c80:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0c90:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0ca0:  0x00000000009cc4c0  0x0000000000000000
+  0x000000c0037b0cb0:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0cc0:  0x0000000000000000  0x0000000000000004
+  0x000000c0037b0cd0:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0ce0:  0x0000000000000009  0x000000c0037b0d58
+  0x000000c0037b0cf0:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0d00:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0d10:  0x0000000000000000  0x00000000009ed520
+  0x000000c0037b0d20:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0d30:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0d40:  0x0000000000000005  0x0000000000000000
+  0x000000c0037b0d50:  0x0000000000000000  0x000000400000000d
+  0x000000c0037b0d60:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0d70:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0d80:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0d90:  0x00000000009ed520  0x0000000000000000
+  0x000000c0037b0da0:  0x0000000000000000  0x0000005000000048
+  0x000000c0037b0db0:  0x0000000000000000  0x0000000000000006
+  0x000000c0037b0dc0:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0dd0:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0de0:  0x0000000000000000  0x0000000000000000
+  0x000000c0037b0df0:  0x0000000000000000  0x0000000000000000
+  0xc0037b0e00 alloc marked
+  0xc0037b1180 alloc marked
+  0xc0037b1500 free  unmarked
+  0xc0037b1880 free  unmarked
+  0xc0037b1c00 free  unmarked
   fatal error: found pointer to free object
   ```
+
+## Use of `unsafe`
+
+While it is possible to use [`unsafe`](https://pkg.go.dev/unsafe) correctly,
+it is difficult to do so as you lose the benefits of type safety.
+Even experienced Go programmers have introduced bugs with `unsafe` that
+could lead to memory corruption, remote code execution, or worse.
+
+The following table shows whether each implementation uses `unsafe`:
+
+| Implementation | Uses `unsafe` |
+| -------------- | ------------- |
+| JSONv1         | 🛡️ no         |
+| JSONv1in2      | 🛡️ no         |
+| JSONv2         | 🛡️ no         |
+| JSONIterator   | 💣 yes        |
+| SegmentJSON    | 💣 yes        |
+| GoJSON         | 💣 yes        |
+| SonicJSON      | 💣 yes        |
+| SonnetJSON     | 🛡️ no         |
+
+Notes:
+* `GoJSON` has reproducible races and bugs that lead to memory corruption.
+  It is not safe for production use.
+* `SonicJSON` includes a just-in-time compiler, which makes it harder
+  to statically verify that the resulting assembly at runtime is safe.
+* `SonnetJSON` is admirably fast while still avoiding use of `unsafe`.
+
+Our test suite was unable to trigger any memory corruption bugs
+in `JSONIterator`, `SegmentJSON`, or `SonicJSON`, which do use `unsafe`.
+Similarly, our test quite was unable to trigger any memory corruption bugs
+in `JSONv1`, `JSONv1in2`, `JSONv2`, and `SonnetJSON`,
+which do not use `unsafe`, but could still have race conditions.
+The inability to trigger bugs does not imply that there are no bugs.
+Caveat emptor.
 
 ## UTF-8 Validation
 
@@ -396,11 +472,13 @@ The following table shows how each implementation handles invalid UTF-8:
 | Implementation | Marshal      | Unmarshal   |
 | -------------- | ------------ | ----------- |
 | JSONv1         | ⚠️ replaced  | ⚠️ replaced |
+| JSONv1in2      | ⚠️ replaced  | ⚠️ replaced |
 | JSONv2         | ✔️ rejected  | ✔️ rejected |
 | JSONIterator   | ⚠️ replaced  | ❌ ignored  |
 | SegmentJSON    | ⚠️ replaced  | ⚠️ replaced |
 | GoJSON         | ⚠️ replaced  | ❌ ignored  |
 | SonicJSON      | ❌ ignored   | ❌ ignored  |
+| SonnetJSON     | ⚠️ replaced  | ⚠️ replaced |
 
 Notes:
 * "Rejected" means that the presence of invalid UTF-8 results in an error.
@@ -438,11 +516,13 @@ The following table shows how each implementation handles duplicate object names
 | Implementation | Marshal      | Unmarshal   |
 | -------------- | ------------ | ----------- |
 | JSONv1         | ❌ allowed   | ❌ allowed  |
+| JSONv1in2      | ❌ allowed   | ❌ allowed  |
 | JSONv2         | ✔️ rejected  | ✔️ rejected |
 | JSONIterator   | ❌ allowed   | ❌ allowed  |
 | SegmentJSON    | ❌ allowed   | ❌ allowed  |
 | GoJSON         | ❌ allowed   | ❌ allowed  |
 | SonicJSON      | ❌ allowed   | ❌ allowed  |
+| SonnetJSON     | ❌ allowed   | ❌ allowed  |
 
 See [`TestDuplicateNames`](/bench_test.go#:~:text=TestDuplicateNames) for more information.
 
@@ -463,11 +543,13 @@ for each implementation when tested against RFC 8259:
 | Implementation | String | Number  | Object | Array   | Other  |
 | -------------- | ------ | ------- | ------ | ------- | ------ |
 | JSONv1         | ❌ 10x | ✔️     | ✔️     | ✔️     | ✔️     |
+| JSONv1in2      | ❌ 10x | ✔️     | ✔️     | ✔️     | ✔️     |
 | JSONv2         | ✔️     | ✔️     | ✔️     | ✔️     | ✔️     |
 | JSONIterator   | ❌ 10x | ❌ 4x  | ✔️     | ✔️     | ✔️     |
 | SegmentJSON    | ❌ 10x | ✔️     | ✔️     | ✔️     | ✔️     |
 | GoJSON         | ❌ 30x | ❌ 52x | ❌ 20x | ❌ 17x | ❌ 10x |
 | SonicJSON      | ❌ 28x | ✔️     | ✔️     | ❌ 1x  | ✔️     |
+| SonnetJSON     | ❌ 10x | ✔️     | ✔️     | ✔️     | ✔️     |
 
 * `JSONv1`, `JSONIterator`, and `SegmentJSON` all fail on the same set of
   JSON string tests that are related to UTF-8 validation.
@@ -497,11 +579,13 @@ for each implementation when tested against RFC 7493:
 | Implementation | String | Number | Object | Array | Other |
 | -------------- | ------ | ------ | ------ | ----- | ----- |
 | JSONv1         | ❌ 9x  | ✔️    | ❌ 3x  | ✔️   | ✔️    |
+| JSONv1in2      | ❌ 9x  | ✔️    | ❌ 3x  | ✔️   | ✔️    |
 | JSONv2         | ✔️     | ✔️    | ✔️     | ✔️   | ✔️    |
 | JSONIterator   | ❌ 9x  | ✔️    | ❌ 3x  | ✔️   | ✔️    |
 | SegmentJSON    | ❌ 9x  | ✔️    | ❌ 3x  | ✔️   | ✔️    |
 | GoJSON         | ❌ 9x  | ✔️    | ❌ 3x  | ✔️   | ✔️    |
 | SonicJSON      | ❌ 9x  | ✔️    | ❌ 3x  | ✔️   | ✔️    |
+| SonnetJSON     | ❌ 9x  | ✔️    | ❌ 3x  | ✔️   | ✔️    |
 
 * `JSONv2` passes all cases since it targets compliance with RFC 7493.
 
@@ -518,11 +602,13 @@ The following table shows which implementations validate `MarshalJSON` output:
 | Implementation | Validates |
 | -------------- | --------- |
 | JSONv1         | ✔️ yes    |
+| JSONv1in2      | ✔️ yes    |
 | JSONv2         | ✔️ yes    |
 | JSONIterator   | ❌ no     |
 | SegmentJSON    | ✔️ yes    |
 | GoJSON         | ✔️ yes    |
 | SonicJSON      | ✔️ yes    |
+| SonnetJSON      | ✔️ yes    |
 
 * `JSONIterator` naively mem-copies the result of `MarshalJSON` to
   the JSON output, resulting in drastic performance gains over
@@ -547,11 +633,13 @@ The following table shows which implementations deterministically marshal maps:
 | Implementation | Deterministic |
 | -------------- | ------------- |
 | JSONv1         | ✔️ yes        |
+| JSONv1in2      | ✔️ yes        |
 | JSONv2         | ❌ no         |
 | JSONIterator   | ❌ no         |
 | SegmentJSON    | ✔️ yes        |
 | GoJSON         | ✔️ yes        |
 | SonicJSON      | ❌ no         |
+| SonnetJSON     | ❌ no         |
 
 See [`TestMapDeterminism`](/bench_test.go#:~:text=TestMapDeterminism) for more information.
 
@@ -569,11 +657,13 @@ The following table shows what changes are observable if the input is invalid:
 | Implementation | Observable Changes |
 | -------------- | ------------------ |
 | JSONv1         | ✔️ none           |
+| JSONv1in2      | ✔️ none           |
 | JSONv2         | ⚠️ all            |
 | JSONIterator   | ⚠️ all            |
 | SegmentJSON    | ❌ some           |
 | GoJSON         | ❌ some           |
 | SonicJSON      | ⚠️ all            |
+| SonnetJSON     | ❌ some           |
 
 * The `JSONv1` implementation alone takes the first approach.
   This fundamentally requires a two-pass parsing, where the first pass
@@ -594,16 +684,17 @@ These were built with `GOOS=linux` and `GOARCH=amd64`.
 
 | Implementation | Size     |
 | -------------- | -------- |
-| JSONv1         | 2.18 MiB |
-| JSONv2         | 2.89 MiB |
-| JSONIterator   | 3.11 MiB |
-| SegmentJSON    | 2.52 MiB |
-| GoJSON         | 3.39 MiB |
-| SonicJSON      | 24.7 MiB |
+| JSONv1         | 2.511 MiB |
+| JSONv1in2      | 3.460 MiB |
+| JSONv2         | 3.394 MiB |
+| JSONIterator   | 3.354 MiB |
+| SegmentJSON    | 3.035 MiB |
+| GoJSON         | 3.720 MiB |
+| SonicJSON      | 7.100 MiB |
+| SonnetJSON     | 2.479 MiB |
 
-* `JSONv1` and `JSONv2` are among the smallest because they only use Go reflection.
-  Using an abstraction layer is slower, but avoids duplicated unsafe logic.
-* `JSONv2` is larger than `SegmentJSON` as it implements many additional features.
+* `JSONv2` adds more functionality than the other packages,
+  so some amount of binary size increase is expected.
 * `SonicJSON` is the largest since it includes a just-in-time compiler.
 
 See [`TestBinarySize`](/bench_test.go#:~:text=TestBinarySize) for more information.

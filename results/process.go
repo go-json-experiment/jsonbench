@@ -60,7 +60,7 @@ func main() {
 		if len(fields) != 5 || !strings.HasPrefix(fields[0], "Benchmark/") {
 			continue
 		}
-		name := strings.TrimPrefix(strings.TrimSuffix(strings.TrimRight(strings.TrimSpace(fields[0]), "01245789"), "-"), "Benchmark/")
+		name := strings.TrimPrefix(strings.TrimSuffix(strings.TrimRight(strings.TrimSpace(fields[0]), "012345789"), "-"), "Benchmark/")
 		segments := strings.Split(name, "/")
 		if len(segments) != 4 {
 			continue
